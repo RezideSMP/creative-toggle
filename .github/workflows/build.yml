@@ -28,3 +28,47 @@ jobs:
         with:
           name: Artifacts
           path: build/libs/
+
+  release:
+    # This job will only run if the 'build' job succeeds and it's a push to the main branch
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' # Or your release branch, e.g., 'master'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # This permission is required to create a release
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+      - name: download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: Artifacts
+          path: build/libs/ # Path where artifacts were uploaded
+
+      - name: get mod version
+        id: get_version
+        run: |
+          # This assumes your build.gradle has a version defined,
+          # e.g., 'version = "1.0.0"' or 'version = project.mod_version'
+          # You might need to adjust this depending on how you define your version.
+          # A common way for Fabric is to read it from fabric.mod.json or gradle.properties
+          # For example, if you have it in gradle.properties:
+          MOD_VERSION=$(grep -E 'version=' gradle.properties | cut -d'=' -f2 | tr -d '\n\r')
+          echo "MOD_VERSION=$MOD_VERSION" >> $GITHUB_OUTPUT
+        working-directory: . # Ensure this is the root of your project
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          # You can customize the tag name. It's common to use 'v' prefix.
+          tag_name: v${{ steps.get_version.outputs.MOD_VERSION }}
+          name: Release v${{ steps.get_version.outputs.MOD_VERSION }}
+          body: |
+            ## Release Notes v${{ steps.get_version.outputs.MOD_VERSION }}
+            (Add your release notes here. You can automate this further with other actions or by parsing commit messages.)
+          draft: false # Set to true to create a draft release
+          prerelease: false # Set to true for pre-release versions
+          files: build/libs/*.jar # Attach all .jar files from the build/libs directory
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is automatically provided by GitHub Actions

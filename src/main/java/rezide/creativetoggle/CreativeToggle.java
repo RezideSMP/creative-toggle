@@ -53,7 +53,7 @@ public class CreativeToggle implements ModInitializer {
 
 	private static void registerCommands(CommandDispatcher<ServerCommandSource> dispatcher, CommandRegistryAccess registryAccess) {
 		dispatcher.register(literal("ctoggle")
-				.requires(source -> source.hasPermissionLevel(2))
+				.requires(source -> source.hasPermissionLevel(1))
 				.executes(CreativeToggle::executeCreativeToggle));
 	}
 

@@ -30,9 +30,9 @@ jobs:
           path: build/libs/
 
   release:
-    # This job will only run if the 'build' job succeeds and it's a push to the main branch
+    # This job will only run if the 'build' job succeeds and it's a push to the master branch
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' # Or your release branch, e.g., 'master'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' # Or your release branch, e.g., 'master'
     runs-on: ubuntu-24.04
     permissions:
       contents: write # This permission is required to create a release

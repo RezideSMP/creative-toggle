@@ -53,7 +53,7 @@ jobs:
           # You might need to adjust this depending on how you define your version.
           # A common way for Fabric is to read it from fabric.mod.json or gradle.properties
           # For example, if you have it in gradle.properties:
-          MOD_VERSION=$(grep -E 'version=' gradle.properties | cut -d'=' -f2 | tr -d '\n\r')
+          MOD_VERSION=$(grep -E 'mod_version=' gradle.properties | cut -d'=' -f2 | tr -d '\n\r')
           echo "MOD_VERSION=$MOD_VERSION" >> $GITHUB_OUTPUT
         working-directory: . # Ensure this is the root of your project
 

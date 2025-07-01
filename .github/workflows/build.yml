@@ -43,7 +43,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: Artifacts
-          path: build/libs/ # Path where artifacts were uploaded
+          path: artifacts # Path where artifacts were uploaded
 
       - name: get mod version
         id: get_version
@@ -69,6 +69,6 @@ jobs:
             (Add your release notes here. You can automate this further with other actions or by parsing commit messages.)
           draft: false # Set to true to create a draft release
           prerelease: false # Set to true for pre-release versions
-          files: build/libs/*.jar # Attach all .jar files from the build/libs directory
+          files: artifacts/*.jar # Attach all .jar files from the build/libs directory
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is automatically provided by GitHub Actions

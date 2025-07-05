@@ -2,6 +2,7 @@ package rezide.creativetoggle;
 
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.StringArgumentType; // Import StringArgumentType
 import com.mojang.brigadier.context.CommandContext;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -22,7 +23,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import static net.minecraft.server.command.CommandManager.literal;
-import static rezide.creativetoggle.DiscordBotManager.*;
+import static net.minecraft.server.command.CommandManager.argument; // Import argument
+import static rezide.creativetoggle.DiscordBotManager.*; // Make sure this import is correct for DiscordBotManager
 
 public class CreativeToggle implements ModInitializer {
 	public static final String MOD_ID = "creative-toggle";
@@ -31,6 +33,7 @@ public class CreativeToggle implements ModInitializer {
 	private static final Map<UUID, ItemStack[]> savedSurvivalInventories = new HashMap<>();
 	private static final Map<UUID, GameMode> originalGameModes = new HashMap<>();
 
+	// Ensure this channel ID is correct for your admin logs
 	private static final long ADMIN_LOG_CHANNEL_ID = 1391142811469873303L;
 
 	@Override
@@ -49,6 +52,7 @@ public class CreativeToggle implements ModInitializer {
 		// Register event listener for player disconnect
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			revertPlayerToSurvival(handler.player);
+			updatePlayerCount(server); // Update player count on disconnect
 		});
 
 		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
@@ -73,10 +77,15 @@ public class CreativeToggle implements ModInitializer {
 	private static void registerCommands(CommandDispatcher<ServerCommandSource> dispatcher, CommandRegistryAccess registryAccess) {
 		dispatcher.register(literal("staffmode")
 				.requires(source -> source.hasPermissionLevel(1))
-				.executes(CreativeToggle::executeCreativeToggle));
+				.executes(context -> executeCreativeToggle(context, "No reason provided.")) // Default reason if none given
+				.then(argument("reason", StringArgumentType.greedyString()) // Adds a greedy string argument for the reason
+						.executes(context -> executeCreativeToggle(context, StringArgumentType.getString(context, "reason")))
+				)
+		);
 	}
 
-	private static int executeCreativeToggle(CommandContext<ServerCommandSource> context) {
+	// Modified executeCreativeToggle to accept a reason
+	private static int executeCreativeToggle(CommandContext<ServerCommandSource> context, String reason) {
 		ServerPlayerEntity player;
 		try {
 			player = context.getSource().getPlayer();
@@ -91,9 +100,7 @@ public class CreativeToggle implements ModInitializer {
 
 		if (currentMode == GameMode.CREATIVE && savedSurvivalInventories.containsKey(uuid)) {
 			player.sendMessage(Text.literal("§eSwitching back to Survival..."), false);
-			LOGGER.info("Player {} switching to Survival", player.getName().getString());
-			updatePlayerCount(player.getServer()); // Update Discord bot's player count in Creative mode
-			sendMessageToChannel(ADMIN_LOG_CHANNEL_ID,String.format("Player %s has exited staff mode and switched to Survival.", playerName));
+			LOGGER.info("Player {} switching to Survival", playerName);
 
 			player.getInventory().clear();
 			ItemStack[] savedItems = savedSurvivalInventories.get(uuid);
@@ -109,9 +116,14 @@ public class CreativeToggle implements ModInitializer {
 			originalGameModes.remove(uuid);
 
 			player.sendMessage(Text.literal("§aYou are now in Survival mode."), false);
+
+			// Discord message for exiting staff mode
+			String discordMessage = String.format("Player **%s** has exited staff mode (switched to Survival). Reason: `%s`", playerName, reason);
+			sendMessageToChannel(ADMIN_LOG_CHANNEL_ID, discordMessage);
+
 		} else if (currentMode == GameMode.SURVIVAL) {
 			player.sendMessage(Text.literal("§eSwitching to Creative..."), false);
-			LOGGER.info("Player {} switching to Creative", player.getName().getString());
+			LOGGER.info("Player {} switching to Creative", playerName);
 
 			ItemStack[] inventoryCopy = new ItemStack[player.getInventory().size()];
 			for (int i = 0; i < inventoryCopy.length; i++) {
@@ -125,7 +137,12 @@ public class CreativeToggle implements ModInitializer {
 			player.changeGameMode(GameMode.CREATIVE);
 
 			player.sendMessage(Text.literal("§aYou are now in Creative mode."), false);
-			player.sendMessage(Text.literal("§7Use /ctoggle again to return to Survival."), false);
+			player.sendMessage(Text.literal("§7Use /staffmode again to return to Survival."), false);
+
+			// Discord message for entering staff mode
+			String discordMessage = String.format("Player **%s** has entered staff mode (switched to Creative). Reason: `%s`", playerName, reason);
+			sendMessageToChannel(ADMIN_LOG_CHANNEL_ID, discordMessage);
+
 		} else {
 			player.sendMessage(Text.literal("§cYou must be in Survival or have toggled from it to use this command."), false);
 			player.sendMessage(Text.literal("§cYour current mode: " + currentMode.getName()), false);
@@ -136,8 +153,10 @@ public class CreativeToggle implements ModInitializer {
 
 	private static void revertPlayerToSurvival(ServerPlayerEntity player) {
 		UUID uuid = player.getUuid();
+		String playerName = player.getName().getString();
+
 		if (player.interactionManager.getGameMode() == GameMode.CREATIVE && savedSurvivalInventories.containsKey(uuid)) {
-			LOGGER.info("Reverting player {} to Survival mode due to disconnect/server stopping.", player.getName().getString());
+			LOGGER.info("Reverting player {} to Survival mode due to disconnect/server stopping.", playerName);
 
 			player.getInventory().clear();
 			ItemStack[] savedItems = savedSurvivalInventories.get(uuid);
@@ -151,6 +170,10 @@ public class CreativeToggle implements ModInitializer {
 
 			savedSurvivalInventories.remove(uuid);
 			originalGameModes.remove(uuid);
+
+			// Discord message for reversion due to disconnect/server stop
+			String discordMessage = String.format("Player **%s** was reverted to Survival mode due to disconnect or server stopping.", playerName);
+			sendMessageToChannel(ADMIN_LOG_CHANNEL_ID, discordMessage);
 		}
 	}
 

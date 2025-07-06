@@ -11,42 +11,50 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger; // To safely update player count
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class DiscordBotManager {
 
     private static JDA jda;
-    // !! IMPORTANT: Replace with your bot token !!
-    private static final String BOT_TOKEN = "0da5e0aa5a3388e977aa625abfc09951d29f25eafc49316e0eeab7173f1ac13d";
-    static final int HTTP_PORT = 8080; // Port for the bot to listen for player count updates from itself/mod
-    static AtomicInteger currentPlayerCount = new AtomicInteger(0);
+    private static String botToken; // Now set via startBot method
+    public static int HTTP_PORT; // Now set via startBot method (made public for CreativeToggle to access)
+    public static AtomicInteger currentPlayerCount = new AtomicInteger(0); // Kept public for direct access for 0 count on stop
 
-    private static HttpServer httpServer; // Keep a reference to shutdown gracefully
+    private static HttpServer httpServer;
 
-    public static void startBot() {
-        if (BOT_TOKEN.equals("YOUR_DISCORD_BOT_TOKEN") || BOT_TOKEN.isEmpty()) {
-            CreativeToggle.LOGGER.warn("Discord BOT_TOKEN not set in DiscordBotManager. Bot will not start.");
+    // Modified startBot to accept token and port
+    public static void startBot(String token, int httpPort) {
+        if (jda != null && jda.getStatus() == JDA.Status.CONNECTED) {
+            CreativeToggle.LOGGER.info("Discord Bot is already running.");
             return;
         }
 
-        // Start bot connection in a new thread
+        botToken = token;
+        HTTP_PORT = httpPort;
+
+        if (botToken.equals("YOUR_DISCORD_BOT_TOKEN_HERE") || botToken.isEmpty()) {
+            CreativeToggle.LOGGER.warn("Discord BOT_TOKEN not set in config/creative-toggle.json. Bot will not start.");
+            return;
+        }
+        if (HTTP_PORT == 0) { // Should be caught by config validation, but another check
+            CreativeToggle.LOGGER.warn("Discord Bot HTTP Port is 0. Bot will not start HTTP server.");
+            return;
+        }
+
         new Thread(() -> {
             try {
-                jda = JDABuilder.createDefault(BOT_TOKEN)
+                jda = JDABuilder.createDefault(botToken)
                         .disableCache(CacheFlag.MEMBER_OVERRIDES, CacheFlag.VOICE_STATE)
                         .setActivity(Activity.playing("Starting up..."))
-                        // You can add event listeners here if your bot will handle Discord commands
-                        // .addEventListeners(new MyBotCommandListener())
                         .build();
-                jda.awaitReady(); // Wait until the bot is fully logged in
-                CreativeToggle.LOGGER.info("Rezide SMP Bot is online!");
+                jda.awaitReady();
+                CreativeToggle.LOGGER.info("Discord Bot is online!");
 
-                // Start the internal HTTP server after the bot is online
-                startHttpServer();
-                updateBotPresence(); // Set initial presence
+                startHttpServer(); // Use the HTTP_PORT from the config
+                updateBotPresence();
 
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // Restore interrupt status
+                Thread.currentThread().interrupt();
                 CreativeToggle.LOGGER.error("Discord Bot connection interrupted: {}", e.getMessage());
             } catch (Exception e) {
                 CreativeToggle.LOGGER.error("Error starting Discord Bot: {}", e.getMessage());
@@ -55,25 +63,24 @@ public class DiscordBotManager {
     }
 
     public static void stopBot() {
-        if (jda != null) {
-            CreativeToggle.LOGGER.info("Shutting down Discord Bot...");
-            jda.shutdownNow(); // Immediately shuts down JDA
-            jda = null; // Clear reference
-            CreativeToggle.LOGGER.info("Discord Bot offline.");
-        }
         if (httpServer != null) {
             CreativeToggle.LOGGER.info("Stopping internal HTTP server...");
-            httpServer.stop(0); // Stop immediately
+            httpServer.stop(0);
             httpServer = null;
             CreativeToggle.LOGGER.info("Internal HTTP server stopped.");
+        }
+        if (jda != null) {
+            CreativeToggle.LOGGER.info("Shutting down Discord Bot...");
+            jda.shutdownNow();
+            jda = null;
+            CreativeToggle.LOGGER.info("Discord Bot offline.");
         }
     }
 
     private static void startHttpServer() throws IOException {
         httpServer = HttpServer.create(new InetSocketAddress(HTTP_PORT), 0);
         httpServer.createContext("/updatePlayerCount", DiscordBotManager::handlePlayerCountUpdate);
-        // Use a separate thread pool for HTTP requests to not block JDA's thread or Minecraft's
-        httpServer.setExecutor(Executors.newFixedThreadPool(2)); // Small pool for concurrency
+        httpServer.setExecutor(Executors.newFixedThreadPool(2));
         httpServer.start();
         CreativeToggle.LOGGER.info("Internal HTTP server started on port {}", HTTP_PORT);
     }
@@ -84,8 +91,8 @@ public class DiscordBotManager {
             try {
                 int count = Integer.parseInt(query.split("=")[1]);
                 currentPlayerCount.set(count);
-                updateBotPresence(); // Update presence immediately
-                CreativeToggle.LOGGER.debug("Received player count update: {}", count); // Use debug for frequent updates
+                updateBotPresence();
+                CreativeToggle.LOGGER.debug("Received player count update: {}", count);
                 String response = "OK";
                 exchange.sendResponseHeaders(200, response.length());
                 OutputStream os = exchange.getResponseBody();
@@ -116,14 +123,13 @@ public class DiscordBotManager {
         }
     }
 
-    // You can add other methods here if your bot will do more, e.g., send messages to channels
     public static void sendMessageToChannel(long channelId, String message) {
         if (jda != null && jda.getStatus() == JDA.Status.CONNECTED) {
             jda.getTextChannelById(channelId)
-                .sendMessage(message)
-                .queue(null, throwable -> CreativeToggle.LOGGER.error("Failed to send message to Discord channel {}: {}", channelId, throwable.getMessage()));
+                    .sendMessage(message)
+                    .queue(null, throwable -> CreativeToggle.LOGGER.error("Failed to send message to Discord channel {}: {}", channelId, throwable.getMessage()));
         } else {
-            CreativeToggle.LOGGER.warn("JDA not connected, cannot send message to channel {}.", channelId);
+            CreativeToggle.LOGGER.warn("JDA not connected, cannot send message to channel {}. Message: {}", channelId, message);
         }
     }
 }

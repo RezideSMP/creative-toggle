@@ -19,14 +19,14 @@ import net.minecraft.world.GameMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 import static net.minecraft.server.command.CommandManager.literal;
 import static net.minecraft.server.command.CommandManager.argument;
-// Remove: import static rezide.creativetoggle.DiscordBotManager.*;
-// We will call DiscordBotManager methods directly via DiscordBotManager.getInstance().method() now
 
 public class CreativeToggle implements ModInitializer {
 	public static final String MOD_ID = "creative-toggle";
@@ -36,14 +36,12 @@ public class CreativeToggle implements ModInitializer {
 	private static final Map<UUID, GameMode> originalGameModes = new HashMap<>();
 	private static final Map<UUID, Boolean> wasOriginallyOp = new HashMap<>();
 
-	// Reference to the config instance
 	private static CreativeToggleConfig config;
 
 	@Override
 	public void onInitialize() {
 		LOGGER.info("Creative Toggle initialized!");
 
-		// Load the config instance
 		config = CreativeToggleConfig.getInstance();
 
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
@@ -51,23 +49,28 @@ public class CreativeToggle implements ModInitializer {
 		});
 
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
-			updatePlayerCount(server);
-			if (handler.player.interactionManager.getGameMode() == GameMode.CREATIVE && savedSurvivalInventories.containsKey(handler.player.getUuid())) {
-				LOGGER.warn("Player {} rejoined in creative mode with saved data. Forcing revert to survival.", handler.player.getName().getString());
-				revertPlayerToSurvival(handler.player);
-			}
+			server.execute(() -> {
+				updatePlayerCount(server);
+				if (handler.player.interactionManager.getGameMode() == GameMode.CREATIVE && savedSurvivalInventories.containsKey(handler.player.getUuid())) {
+					LOGGER.warn("Player {} rejoined in creative mode with saved data. Forcing revert to survival.", handler.player.getName().getString());
+					revertPlayerToSurvival(handler.player);
+				}
+			});
 		});
 
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			revertPlayerToSurvival(handler.player);
-			updatePlayerCount(server);
+			server.execute(() -> {
+				updatePlayerCount(server);
+			});
 		});
 
 		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
 			LOGGER.info("Minecraft server started. Starting Discord bot and sending initial player count.");
-			// Pass config values to DiscordBotManager when starting
-			DiscordBotManager.startBot(config.getDiscordBotToken(), config.getDiscordBotHttpPort());
-			updatePlayerCount(server);
+			// Pass the server instance to startBot as well
+			DiscordBotManager.startBot(config.getDiscordBotToken(), config.getDiscordBotHttpPort(), server);
+			// Removed direct updatePlayerCount here, it's now handled within DiscordBotManager.startBot
+			// Removed direct Discord message here, it's now handled within DiscordBotManager.startBot
 		});
 
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -75,9 +78,9 @@ public class CreativeToggle implements ModInitializer {
 			for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
 				revertPlayerToSurvival(player);
 			}
-			// Now access currentPlayerCount via DiscordBotManager instance
 			DiscordBotManager.currentPlayerCount.set(0);
 			DiscordBotManager.updateBotPresence();
+			// The stopBot method now handles sending the "Server Stopping" message internally
 			DiscordBotManager.stopBot();
 		});
 	}
@@ -216,29 +219,7 @@ public class CreativeToggle implements ModInitializer {
 	private static void updatePlayerCount(MinecraftServer server) {
 		int playerCount = server.getCurrentPlayerCount();
 		CreativeToggle.LOGGER.info("Current player count: {}", playerCount);
-		new Thread(() -> {
-			try {
-				java.net.URL url = new java.net.URL("http://localhost:" + config.getDiscordBotHttpPort() + "/updatePlayerCount"); // Use config for port
-				java.net.HttpURLConnection connection = (java.net.HttpURLConnection) url.openConnection();
-				connection.setRequestMethod("POST");
-				connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-				connection.setDoOutput(true);
-
-				String payload = "count=" + playerCount;
-
-				try (java.io.OutputStream os = connection.getOutputStream()) {
-					byte[] input = payload.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-					os.write(input, 0, input.length);
-				}
-
-				int responseCode = connection.getResponseCode();
-				if (responseCode != java.net.HttpURLConnection.HTTP_OK) {
-					CreativeToggle.LOGGER.error("Failed to send player count to internal bot HTTP server. Response code: {}", responseCode);
-				}
-				connection.disconnect();
-			} catch (Exception e) {
-				CreativeToggle.LOGGER.error("Error sending player count to internal bot HTTP server: {}", e.getMessage());
-			}
-		}, "PlayerCountSender-Internal").start();
+		// Now sends to the DiscordBotManager directly, which will handle the HTTP request
+		DiscordBotManager.updatePlayerCountViaHttp(playerCount); // New helper method
 	}
 }

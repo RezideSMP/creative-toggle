@@ -12,6 +12,8 @@ public class CreativeToggleConfig {
     // Default values
     private String discordBotToken = "YOUR_DISCORD_BOT_TOKEN_HERE"; // IMPORTANT: Replace this
     private long adminLogChannelId = 0L; // Default to 0, indicating it needs to be set
+    // Removed: private long commandLogChannelId = 0L; // No longer needed
+    private long serverStatusChannelId = 0L; // New: Default to 0 for server status channel
     private int discordBotHttpPort = 8080;
 
     // --- Getters for your configuration values ---
@@ -21,6 +23,12 @@ public class CreativeToggleConfig {
 
     public long getAdminLogChannelId() {
         return adminLogChannelId;
+    }
+
+    // Removed: public long getCommandLogChannelId() { return commandLogChannelId; } // No longer needed
+
+    public long getServerStatusChannelId() {
+        return serverStatusChannelId;
     }
 
     public int getDiscordBotHttpPort() {
@@ -55,10 +63,15 @@ public class CreativeToggleConfig {
                     CreativeToggle.LOGGER.warn("Discord Admin Log Channel ID is not set in config. Please update config/creative-toggle.json");
                     changed = true;
                 }
+                // Removed: commandLogChannelId check
+                if (config.serverStatusChannelId == 0L) {
+                    CreativeToggle.LOGGER.warn("Discord Server Status Channel ID is not set in config. Please update config/creative-toggle.json");
+                    changed = true;
+                }
                 if (config.discordBotHttpPort == 0) { // Should not be 0, provide a default if somehow corrupted
-                     CreativeToggle.LOGGER.warn("Discord Bot HTTP Port is not set in config. Using default 8080.");
-                     config.discordBotHttpPort = 8080;
-                     changed = true;
+                    CreativeToggle.LOGGER.warn("Discord Bot HTTP Port is not set in config. Using default 8080.");
+                    config.discordBotHttpPort = 8080;
+                    changed = true;
                 }
 
                 if (changed) {

@@ -3,12 +3,18 @@
 	"package": "rezide.creativetoggle.mixin",
 	"compatibilityLevel": "JAVA_21",
 	"mixins": [
-		"ExampleMixin"
+		"CommandLoggerMixin",
+		"ExampleMixin",
+		"PlayerInventoryMixin",
+		"ServerPlayNetworkHandlerCreativeLogMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
 	},
 	"overwrites": {
 		"requireAnnotations": true
-	}
+	},
+	"client": [
+		"CreativeInventoryMixin"
+	]
 }

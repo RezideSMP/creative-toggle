@@ -78,3 +78,26 @@ publishing {
 		// retrieving dependencies.
 	}
 }
+
+tasks.register('generateConfig', JavaExec) {
+	group = "fabric" // Or any other suitable group
+	description = "Generates a default creative-toggle.json config file."
+
+	// Set the classpath to include your compiled mod classes and dependencies
+	classpath = sourceSets.main.runtimeClasspath
+
+	// Specify the main class and method to execute
+	// This assumes CreativeToggleConfig.java exists and has a public static save method that takes a CreativeToggleConfig object.
+	// The save method should handle creating a new default config if one doesn't exist.
+	mainClass = "rezide.creativetoggle.CreativeToggleConfig"
+	args "generate"
+	// You can pass arguments if your main method needs them, though not strictly necessary for this simple save.
+
+	doFirst {
+		println "Attempting to generate default config file..."
+	}
+
+	doLast {
+		println "Config generation task completed. Check your 'config' directory for creative-toggle.json"
+	}
+}

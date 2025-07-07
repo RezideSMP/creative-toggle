@@ -145,11 +145,19 @@ public class DiscordBotManager {
         }
     }
 
+    // Removed: sendCommandLogMessage method
+
     private static void sendInitialServerStatusMessage() {
         CreativeToggleConfig config = CreativeToggleConfig.getInstance();
         String startTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        sendMessageToChannel(config.getAdminLogChannelId(),
-                String.format("✅ **Server Started!**\nTime: `%s EDT`", startTime));
+        String message = String.format("✅ **Server Started!**\nTime: `%s EDT`", startTime);
+
+        // Send to admin log channel
+        sendMessageToChannel(config.getAdminLogChannelId(), message);
+        // Send to server status channel
+        if (config.getServerStatusChannelId() != 0L) {
+            sendMessageToChannel(config.getServerStatusChannelId(), message);
+        }
 
         if (minecraftServerInstance != null) {
             int playerCount = minecraftServerInstance.getCurrentPlayerCount();
@@ -162,8 +170,15 @@ public class DiscordBotManager {
     private static void sendServerStoppingMessage() {
         CreativeToggleConfig config = CreativeToggleConfig.getInstance();
         String stopTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        sendMessageToChannel(config.getAdminLogChannelId(),
-                String.format("⛔ **Server Stopping!**\nTime: `%s EDT`", stopTime));
+        String message = String.format("⛔ **Server Stopping!**\nTime: `%s EDT`", stopTime);
+
+        // Send to admin log channel
+        sendMessageToChannel(config.getAdminLogChannelId(), message);
+        // Send to server status channel
+        if (config.getServerStatusChannelId() != 0L) {
+            sendMessageToChannel(config.getServerStatusChannelId(), message);
+        }
+
         try {
             Thread.sleep(1000);
         } catch (InterruptedException e) {

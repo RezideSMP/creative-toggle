@@ -13,8 +13,5 @@
 	},
 	"overwrites": {
 		"requireAnnotations": true
-	},
-	"client": [
-		"CreativeInventoryMixin"
-	]
+	}
 }

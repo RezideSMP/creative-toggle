@@ -28,7 +28,8 @@ dependencies {
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
 	// Add JDA
-	include 'net.dv8tion:JDA:5.6.1' // Check JDA's GitHub for the latest version
+	modImplementation 'net.dv8tion:JDA:5.6.1'
+	include 'net.dv8tion:JDA:5.6.1'
 }
 
 processResources {

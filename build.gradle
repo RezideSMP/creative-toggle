@@ -18,6 +18,10 @@ repositories {
 	// for more information about repositories.
 }
 
+configurations {
+	shadowedJars // This configuration will be used to collect transitive dependencies
+}
+
 dependencies {
 	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
@@ -29,6 +33,7 @@ dependencies {
 
 	// Add JDA
 	modImplementation 'net.dv8tion:JDA:5.6.1'
+	shadowedJars 'net.dv8tion:JDA:5.6.1'
 }
 
 processResources {
@@ -59,6 +64,9 @@ jar {
 	from("LICENSE") {
 		rename { "${it}_${inputs.properties.archivesName}"}
 	}
+
+	from configurations.shadowedJars.collect { it.isDirectory() ? it : zipTree(it) }
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 // configure the maven publication

@@ -1,4 +1,4 @@
-package rezide.creativetoggle;
+package rezide.staffmode;
 
 import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.Command;
@@ -38,22 +38,22 @@ import java.util.UUID;
 import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
 
-public class CreativeToggle implements ModInitializer {
-	public static final String MOD_ID = "creative-toggle";
+public class StaffMode implements ModInitializer {
+	public static final String MOD_ID = "staff-mode";
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
 	private static final Map<UUID, ItemStack[]> savedSurvivalInventories = new HashMap<>();
 	private static final Map<UUID, GameMode> originalGameModes = new HashMap<>();
 	private static final Map<UUID, Boolean> wasOriginallyOp = new HashMap<>();
 
-	private static CreativeToggleConfig config;
+	private static StaffModeConfig config;
 	private static File dataFile; // File to save/load data
 
 	@Override
 	public void onInitialize() {
-		LOGGER.info("Creative Toggle initialized!");
+		LOGGER.info("Staff Mode initialized!");
 
-		config = CreativeToggleConfig.getInstance();
+		config = StaffModeConfig.getInstance();
 
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
 			registerCommands(dispatcher, registryAccess);
@@ -127,7 +127,7 @@ public class CreativeToggle implements ModInitializer {
 			loadData(server); // Load data when server starts
 
 			// Start Discord bot *after* data is loaded.
-			DiscordBotManager.startBot(config.getDiscordBotToken(), config.getDiscordBotHttpPort(), server);
+			DiscordBotManager.startBot(config.getDiscordBotToken(), config.getDiscordBotHttpPort(), server, config);
 		});
 
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -285,7 +285,7 @@ public class CreativeToggle implements ModInitializer {
 
 	private static void updatePlayerCount(MinecraftServer server) {
 		int playerCount = server.getCurrentPlayerCount();
-		CreativeToggle.LOGGER.info("Current player count: {}", playerCount);
+		StaffMode.LOGGER.info("Current player count: {}", playerCount);
 		DiscordBotManager.updatePlayerCountViaHttp(playerCount); // New helper method
 	}
 
@@ -293,7 +293,7 @@ public class CreativeToggle implements ModInitializer {
 		return savedSurvivalInventories.containsKey(uuid) && originalGameModes.containsKey(uuid);
 	}
 
-	public static CreativeToggleConfig getConfig() {
+	public static StaffModeConfig getConfig() {
 		return config;
 	}
 
@@ -305,7 +305,7 @@ public class CreativeToggle implements ModInitializer {
 			return;
 		}
 
-		LOGGER.info("Saving Creative Toggle data...");
+		LOGGER.info("Saving Staff Mode data...");
 		NbtCompound rootTag = new NbtCompound();
 
 		RegistryWrapper.WrapperLookup lookup = server.getRegistryManager();
@@ -351,9 +351,9 @@ public class CreativeToggle implements ModInitializer {
 
 		try (FileOutputStream fos = new FileOutputStream(dataFile)) {
 			NbtIo.writeCompressed(rootTag, fos);
-			LOGGER.info("Creative Toggle data saved successfully.");
+			LOGGER.info("Staff Mode data saved successfully.");
 		} catch (IOException e) {
-			LOGGER.error("Failed to save Creative Toggle data: {}", e.getMessage());
+			LOGGER.error("Failed to save Staff Mode data: {}", e.getMessage());
 		}
 	}
 
@@ -363,11 +363,11 @@ public class CreativeToggle implements ModInitializer {
 			return;
 		}
 		if (!dataFile.exists()) {
-			LOGGER.info("No Creative Toggle data file found. Starting with empty data.");
+			LOGGER.info("No Staff Mode data file found. Starting with empty data.");
 			return;
 		}
 
-		LOGGER.info("Loading Creative Toggle data...");
+		LOGGER.info("Loading Staff Mode data...");
 		try (FileInputStream fis = new FileInputStream(dataFile);
 			 BufferedInputStream bis = new BufferedInputStream(fis)) { // Wrapped in BufferedInputStream
 			NbtCompound rootTag = NbtIo.readCompressed(bis, NbtSizeTracker.ofUnlimitedBytes()); // Read from BufferedInputStream
@@ -421,9 +421,9 @@ public class CreativeToggle implements ModInitializer {
 				}
 			}
 
-			LOGGER.info("Creative Toggle data loaded successfully. {} players in staff mode found.", savedSurvivalInventories.size());
+			LOGGER.info("Staff Mode data loaded successfully. {} players in staff mode found.", savedSurvivalInventories.size());
 		} catch (IOException e) {
-			LOGGER.error("Failed to load Creative Toggle data: {}", e.getMessage());
+			LOGGER.error("Failed to load Staff Mode data: {}", e.getMessage());
 			savedSurvivalInventories.clear();
 			originalGameModes.clear();
 			wasOriginallyOp.clear();

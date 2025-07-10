@@ -127,7 +127,7 @@ public class StaffMode implements ModInitializer {
 			loadData(server); // Load data when server starts
 
 			// Start Discord bot *after* data is loaded.
-			DiscordBotManager.startBot(config.getDiscordBotToken(), config.getDiscordBotHttpPort(), server);
+			DiscordBotManager.startBot(config.getDiscordBotToken(), config.getDiscordBotHttpPort(), server, config);
 		});
 
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -305,7 +305,7 @@ public class StaffMode implements ModInitializer {
 			return;
 		}
 
-		LOGGER.info("Saving Creative Toggle data...");
+		LOGGER.info("Saving Staff Mode data...");
 		NbtCompound rootTag = new NbtCompound();
 
 		RegistryWrapper.WrapperLookup lookup = server.getRegistryManager();
@@ -351,9 +351,9 @@ public class StaffMode implements ModInitializer {
 
 		try (FileOutputStream fos = new FileOutputStream(dataFile)) {
 			NbtIo.writeCompressed(rootTag, fos);
-			LOGGER.info("Creative Toggle data saved successfully.");
+			LOGGER.info("Staff Mode data saved successfully.");
 		} catch (IOException e) {
-			LOGGER.error("Failed to save Creative Toggle data: {}", e.getMessage());
+			LOGGER.error("Failed to save Staff Mode data: {}", e.getMessage());
 		}
 	}
 
@@ -363,11 +363,11 @@ public class StaffMode implements ModInitializer {
 			return;
 		}
 		if (!dataFile.exists()) {
-			LOGGER.info("No Creative Toggle data file found. Starting with empty data.");
+			LOGGER.info("No Staff Mode data file found. Starting with empty data.");
 			return;
 		}
 
-		LOGGER.info("Loading Creative Toggle data...");
+		LOGGER.info("Loading Staff Mode data...");
 		try (FileInputStream fis = new FileInputStream(dataFile);
 			 BufferedInputStream bis = new BufferedInputStream(fis)) { // Wrapped in BufferedInputStream
 			NbtCompound rootTag = NbtIo.readCompressed(bis, NbtSizeTracker.ofUnlimitedBytes()); // Read from BufferedInputStream
@@ -421,9 +421,9 @@ public class StaffMode implements ModInitializer {
 				}
 			}
 
-			LOGGER.info("Creative Toggle data loaded successfully. {} players in staff mode found.", savedSurvivalInventories.size());
+			LOGGER.info("Staff Mode data loaded successfully. {} players in staff mode found.", savedSurvivalInventories.size());
 		} catch (IOException e) {
-			LOGGER.error("Failed to load Creative Toggle data: {}", e.getMessage());
+			LOGGER.error("Failed to load Staff Mode data: {}", e.getMessage());
 			savedSurvivalInventories.clear();
 			originalGameModes.clear();
 			wasOriginallyOp.clear();

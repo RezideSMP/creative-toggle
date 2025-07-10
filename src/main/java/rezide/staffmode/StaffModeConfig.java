@@ -12,9 +12,12 @@ public class StaffModeConfig {
     // Default values
     private String discordBotToken = "YOUR_DISCORD_BOT_TOKEN_HERE"; // IMPORTANT: Replace this
     private long adminLogChannelId = 0L; // Default to 0, indicating it needs to be set
-    // Removed: private long commandLogChannelId = 0L; // No longer needed
     private long serverStatusChannelId = 0L; // New: Default to 0 for server status channel
     private int discordBotHttpPort = 8080;
+
+    // New fields for file logging
+    private boolean logToFileEnabled = true; // Default to false
+    private String logFilePath = "logs/staff-mode-server.log"; // Default log file path
 
     // --- Getters for your configuration values ---
     public String getDiscordBotToken() {
@@ -25,14 +28,21 @@ public class StaffModeConfig {
         return adminLogChannelId;
     }
 
-    // Removed: public long getCommandLogChannelId() { return commandLogChannelId; } // No longer needed
-
     public long getServerStatusChannelId() {
         return serverStatusChannelId;
     }
 
     public int getDiscordBotHttpPort() {
         return discordBotHttpPort;
+    }
+
+    // New getters for file logging
+    public boolean isLogToFileEnabled() {
+        return logToFileEnabled;
+    }
+
+    public String getLogFilePath() {
+        return logFilePath;
     }
 
     // --- Static methods for loading/saving config ---
@@ -54,6 +64,8 @@ public class StaffModeConfig {
                 StaffMode.LOGGER.info("Loaded config from {}", CONFIG_PATH);
                 // If a new config value is added later, ensure it's not null and save
                 boolean changed = false;
+
+                // Existing checks
                 if (config.discordBotToken == null || config.discordBotToken.isEmpty() || config.discordBotToken.equals("YOUR_DISCORD_BOT_TOKEN_HERE")) {
                     StaffMode.LOGGER.warn("Discord Bot Token is not set in config. Please update config/staff-mode.json");
                     config.discordBotToken = "YOUR_DISCORD_BOT_TOKEN_HERE"; // Ensure default is there if user deleted it
@@ -63,7 +75,6 @@ public class StaffModeConfig {
                     StaffMode.LOGGER.warn("Discord Admin Log Channel ID is not set in config. Please update config/staff-mode.json");
                     changed = true;
                 }
-                // Removed: commandLogChannelId check
                 if (config.serverStatusChannelId == 0L) {
                     StaffMode.LOGGER.warn("Discord Server Status Channel ID is not set in config. Please update config/staff-mode.json");
                     changed = true;
@@ -73,6 +84,18 @@ public class StaffModeConfig {
                     config.discordBotHttpPort = 8080;
                     changed = true;
                 }
+
+                // New checks for file logging properties
+                // Gson will set boolean primitives to their default (false) if missing, which is fine.
+                // For String, it will be null if missing, so we explicitly check and set defaults.
+                if (config.logFilePath == null || config.logFilePath.isEmpty()) {
+                    StaffMode.LOGGER.warn("Log file path is not set in config. Using default 'logs/staff-mode-server.log'.");
+                    config.logFilePath = "logs/staff-mode-server.log";
+                    changed = true;
+                }
+                // If logToFileEnabled is false, and it was true previously in the file but removed, it would
+                // default to false. No explicit check for boolean needed unless you want to force a default.
+                // The default `false` for `logToFileEnabled` means it will only be true if explicitly set in the config.
 
                 if (changed) {
                     save(config); // Save with any defaults applied

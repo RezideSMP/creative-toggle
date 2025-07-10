@@ -1,4 +1,4 @@
-package rezide.creativetoggle;
+package rezide.staffmode;
 
 import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.Command;
@@ -38,22 +38,22 @@ import java.util.UUID;
 import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
 
-public class CreativeToggle implements ModInitializer {
-	public static final String MOD_ID = "creative-toggle";
+public class StaffMode implements ModInitializer {
+	public static final String MOD_ID = "staff-mode";
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
 	private static final Map<UUID, ItemStack[]> savedSurvivalInventories = new HashMap<>();
 	private static final Map<UUID, GameMode> originalGameModes = new HashMap<>();
 	private static final Map<UUID, Boolean> wasOriginallyOp = new HashMap<>();
 
-	private static CreativeToggleConfig config;
+	private static StaffModeConfig config;
 	private static File dataFile; // File to save/load data
 
 	@Override
 	public void onInitialize() {
-		LOGGER.info("Creative Toggle initialized!");
+		LOGGER.info("Staff Mode initialized!");
 
-		config = CreativeToggleConfig.getInstance();
+		config = StaffModeConfig.getInstance();
 
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
 			registerCommands(dispatcher, registryAccess);
@@ -285,7 +285,7 @@ public class CreativeToggle implements ModInitializer {
 
 	private static void updatePlayerCount(MinecraftServer server) {
 		int playerCount = server.getCurrentPlayerCount();
-		CreativeToggle.LOGGER.info("Current player count: {}", playerCount);
+		StaffMode.LOGGER.info("Current player count: {}", playerCount);
 		DiscordBotManager.updatePlayerCountViaHttp(playerCount); // New helper method
 	}
 
@@ -293,7 +293,7 @@ public class CreativeToggle implements ModInitializer {
 		return savedSurvivalInventories.containsKey(uuid) && originalGameModes.containsKey(uuid);
 	}
 
-	public static CreativeToggleConfig getConfig() {
+	public static StaffModeConfig getConfig() {
 		return config;
 	}
 

@@ -1,4 +1,4 @@
-package rezide.creativetoggle;
+package rezide.staffmode;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
@@ -29,7 +29,7 @@ public class DiscordBotManager {
 
     public static void startBot(String token, int httpPort, MinecraftServer server) {
         if (jda != null && jda.getStatus() == JDA.Status.CONNECTED) {
-            CreativeToggle.LOGGER.info("Discord Bot is already running.");
+            StaffMode.LOGGER.info("Discord Bot is already running.");
             return;
         }
 
@@ -38,11 +38,11 @@ public class DiscordBotManager {
         minecraftServerInstance = server; // Store the server instance
 
         if (botToken.equals("YOUR_DISCORD_BOT_TOKEN_HERE") || botToken.isEmpty()) {
-            CreativeToggle.LOGGER.warn("Discord BOT_TOKEN not set in config/creative-toggle.json. Bot will not start.");
+            StaffMode.LOGGER.warn("Discord BOT_TOKEN not set in config/staff-mode.json. Bot will not start.");
             return;
         }
         if (HTTP_PORT == 0) {
-            CreativeToggle.LOGGER.warn("Discord Bot HTTP Port is 0. Bot will not start HTTP server.");
+            StaffMode.LOGGER.warn("Discord Bot HTTP Port is 0. Bot will not start HTTP server.");
             return;
         }
 
@@ -53,7 +53,7 @@ public class DiscordBotManager {
                         .setActivity(Activity.playing("Starting up..."))
                         .build();
                 jda.awaitReady(); // This line blocks until the bot is connected and ready
-                CreativeToggle.LOGGER.info("Discord Bot is online!");
+                StaffMode.LOGGER.info("Discord Bot is online!");
 
                 // Execute initial tasks AFTER JDA is ready
                 startHttpServer(); // Start HTTP server after JDA is ready
@@ -62,9 +62,9 @@ public class DiscordBotManager {
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                CreativeToggle.LOGGER.error("Discord Bot connection interrupted: {}", e.getMessage());
+                StaffMode.LOGGER.error("Discord Bot connection interrupted: {}", e.getMessage());
             } catch (Exception e) {
-                CreativeToggle.LOGGER.error("Error starting Discord Bot: {}", e.getMessage());
+                StaffMode.LOGGER.error("Error starting Discord Bot: {}", e.getMessage());
             } finally {
                 // Clear the server instance reference once the initial setup is done
                 minecraftServerInstance = null;
@@ -76,16 +76,16 @@ public class DiscordBotManager {
         sendServerStoppingMessage(); // Attempt to send message before any shutdown
 
         if (httpServer != null) {
-            CreativeToggle.LOGGER.info("Stopping internal HTTP server...");
+            StaffMode.LOGGER.info("Stopping internal HTTP server...");
             httpServer.stop(0);
             httpServer = null;
-            CreativeToggle.LOGGER.info("Internal HTTP server stopped.");
+            StaffMode.LOGGER.info("Internal HTTP server stopped.");
         }
         if (jda != null) {
-            CreativeToggle.LOGGER.info("Shutting down Discord Bot...");
+            StaffMode.LOGGER.info("Shutting down Discord Bot...");
             jda.shutdownNow(); // Use shutdownNow for faster exit
             jda = null;
-            CreativeToggle.LOGGER.info("Discord Bot offline.");
+            StaffMode.LOGGER.info("Discord Bot offline.");
         }
     }
 
@@ -94,7 +94,7 @@ public class DiscordBotManager {
         httpServer.createContext("/updatePlayerCount", DiscordBotManager::handlePlayerCountUpdate);
         httpServer.setExecutor(Executors.newFixedThreadPool(2));
         httpServer.start();
-        CreativeToggle.LOGGER.info("Internal HTTP server started on port {}", HTTP_PORT);
+        StaffMode.LOGGER.info("Internal HTTP server started on port {}", HTTP_PORT);
     }
 
     private static void handlePlayerCountUpdate(HttpExchange exchange) throws IOException {
@@ -104,14 +104,14 @@ public class DiscordBotManager {
                 int count = Integer.parseInt(query.split("=")[1]);
                 currentPlayerCount.set(count);
                 updateBotPresence();
-                CreativeToggle.LOGGER.debug("Received player count update: {}", count);
+                StaffMode.LOGGER.debug("Received player count update: {}", count);
                 String response = "OK";
                 exchange.sendResponseHeaders(200, response.length());
                 OutputStream os = exchange.getResponseBody();
                 os.write(response.getBytes());
                 os.close();
             } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
-                CreativeToggle.LOGGER.error("Invalid player count format received from internal request: {}", query);
+                StaffMode.LOGGER.error("Invalid player count format received from internal request: {}", query);
                 String response = "Bad Request";
                 exchange.sendResponseHeaders(400, response.length());
                 OutputStream os = exchange.getResponseBody();
@@ -131,7 +131,7 @@ public class DiscordBotManager {
         if (jda != null && jda.getStatus() == JDA.Status.CONNECTED) {
             jda.getPresence().setActivity(Activity.playing("Players: " + currentPlayerCount.get()));
         } else {
-            CreativeToggle.LOGGER.warn("JDA not connected, cannot update bot presence.");
+            StaffMode.LOGGER.warn("JDA not connected, cannot update bot presence.");
         }
     }
 
@@ -139,16 +139,16 @@ public class DiscordBotManager {
         if (jda != null && jda.getStatus() == JDA.Status.CONNECTED) {
             jda.getTextChannelById(channelId)
                     .sendMessage(message)
-                    .queue(null, throwable -> CreativeToggle.LOGGER.error("Failed to send message to Discord channel {}: {}", channelId, throwable.getMessage()));
+                    .queue(null, throwable -> StaffMode.LOGGER.error("Failed to send message to Discord channel {}: {}", channelId, throwable.getMessage()));
         } else {
-            CreativeToggle.LOGGER.warn("JDA not connected, cannot send message to channel {}. Message: {}", channelId, message);
+            StaffMode.LOGGER.warn("JDA not connected, cannot send message to channel {}. Message: {}", channelId, message);
         }
     }
 
     // Removed: sendCommandLogMessage method
 
     private static void sendInitialServerStatusMessage() {
-        CreativeToggleConfig config = CreativeToggleConfig.getInstance();
+        StaffModeConfig config = StaffModeConfig.getInstance();
         String startTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         String message = String.format("✅ **Server Started!**\nTime: `%s EDT`", startTime);
 
@@ -163,12 +163,12 @@ public class DiscordBotManager {
             int playerCount = minecraftServerInstance.getCurrentPlayerCount();
             currentPlayerCount.set(playerCount);
             updateBotPresence();
-            CreativeToggle.LOGGER.info("Initial player count sent: {}", playerCount);
+            StaffMode.LOGGER.info("Initial player count sent: {}", playerCount);
         }
     }
 
     private static void sendServerStoppingMessage() {
-        CreativeToggleConfig config = CreativeToggleConfig.getInstance();
+        StaffModeConfig config = StaffModeConfig.getInstance();
         String stopTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         String message = String.format("⛔ **Server Stopping!**\nTime: `%s EDT`", stopTime);
 
@@ -183,7 +183,7 @@ public class DiscordBotManager {
             Thread.sleep(1000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            CreativeToggle.LOGGER.warn("Interrupted while waiting for Discord 'Server Stopping' message to send.");
+            StaffMode.LOGGER.warn("Interrupted while waiting for Discord 'Server Stopping' message to send.");
         }
     }
 
@@ -206,11 +206,11 @@ public class DiscordBotManager {
 
                 int responseCode = connection.getResponseCode();
                 if (responseCode != java.net.HttpURLConnection.HTTP_OK) {
-                    CreativeToggle.LOGGER.error("Failed to send player count to internal bot HTTP server. Response code: {}", responseCode);
+                    StaffMode.LOGGER.error("Failed to send player count to internal bot HTTP server. Response code: {}", responseCode);
                 }
                 connection.disconnect();
             } catch (Exception e) {
-                CreativeToggle.LOGGER.error("Error sending player count to internal bot HTTP server: {}", e.getMessage());
+                StaffMode.LOGGER.error("Error sending player count to internal bot HTTP server: {}", e.getMessage());
             }
         }, "PlayerCountSender-Internal").start();
     }

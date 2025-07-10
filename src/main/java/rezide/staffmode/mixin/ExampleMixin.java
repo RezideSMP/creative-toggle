@@ -1,4 +1,4 @@
-package rezide.creativetoggle.mixin;
+package rezide.staffmode.mixin;
 
 import net.minecraft.server.MinecraftServer;
 import org.spongepowered.asm.mixin.Mixin;

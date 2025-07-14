@@ -173,23 +173,11 @@ public class StaffMode implements ModInitializer {
 
 		// Safeguard check: If player is in staff mode but not in creative, or vice versa, correct them.
 		if (isPlayerInStaffMode(uuid) && currentMode != GameMode.CREATIVE) {
-			player.sendMessage(Text.literal("§cDetected manual game mode change while in staff mode. Reverting to creative..."), false);
+			player.sendMessage(Text.literal("§cDetected manual game mode change while in staff mode.\nReverting to creative...\nUse /staffmode again to revert to survival mode"), false);
 			player.changeGameMode(GameMode.CREATIVE);
 			String discordMessage = String.format("Player **%s** attempted manual game mode change while in staff mode. Forced back to Creative.", playerName);
 			DiscordBotManager.sendMessageToChannel(config.getAdminLogChannelId(), discordMessage);
 			return Command.SINGLE_SUCCESS; // Indicate command handled
-		} else if (!isPlayerInStaffMode(uuid) && currentMode == GameMode.CREATIVE) {
-			player.sendMessage(Text.literal("§cDetected creative mode without staff mode enabled. Reverting to survival and clearing inventory as safeguard..."), false);
-			player.getInventory().clear();
-			player.changeGameMode(GameMode.SURVIVAL);
-			// Also ensure OP status is removed if they weren't OP before this manual change.
-			if (server.getPlayerManager().isOperator(playerProfile)) {
-				server.getPlayerManager().removeFromOperators(playerProfile);
-				player.sendMessage(Text.literal("§aYour operator status has been revoked."), false);
-			}
-			String discordMessage = String.format("Player **%s** was found in creative mode without staff mode enabled. Forced back to Survival and cleared inventory.", playerName);
-			DiscordBotManager.sendMessageToChannel(config.getAdminLogChannelId(), discordMessage);
-			return Command.SINGLE_SUCCESS;
 		}
 
 		if (currentMode == GameMode.CREATIVE && savedSurvivalInventories.containsKey(uuid)) {

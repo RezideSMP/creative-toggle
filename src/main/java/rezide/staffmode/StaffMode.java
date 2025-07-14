@@ -31,17 +31,26 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.time.LocalDateTime; // Added for inventory history timestamp
-import java.time.format.DateTimeFormatter; // Added for inventory history timestamp formatting
-import java.util.ArrayDeque; // For inventory history
-import java.util.Deque; // For inventory history
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
+import java.util.Collection;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import static net.minecraft.command.argument.GameProfileArgumentType.gameProfile;
+import static net.minecraft.command.argument.GameProfileArgumentType.getProfileArgument;
 import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
+
+import net.minecraft.inventory.SimpleInventory;
+import net.minecraft.screen.GenericContainerScreenHandler;
+import net.minecraft.screen.NamedScreenHandlerFactory; // Changed import
+import net.minecraft.entity.player.PlayerInventory; // Added import
+import net.minecraft.entity.player.PlayerEntity; // Added import
 
 public class StaffMode implements ModInitializer {
 	public static final String MOD_ID = "staff-mode";
@@ -50,13 +59,16 @@ public class StaffMode implements ModInitializer {
 	private static final Map<UUID, ItemStack[]> savedSurvivalInventories = new HashMap<>();
 	private static final Map<UUID, GameMode> originalGameModes = new HashMap<>();
 	private static final Map<UUID, Boolean> wasOriginallyOp = new HashMap<>();
-	// New: Inventory history for each player
 	private static final Map<UUID, Deque<PlayerInventorySnapshot>> inventoryHistory = new HashMap<>();
-	private static final int MAX_INVENTORY_HISTORY = 30; // Store last 30 inventory states
+	private static final int MAX_INVENTORY_HISTORY = 30;
 
-	private static StaffModeConfig config;
+	// Map to temporarily store the UUID of the player whose history an admin is currently viewing
+	private static final Map<UUID, UUID> viewingHistoryOfPlayer = new HashMap<>();
+
+	private static StaffModeConfig config; // Make sure this is declared here or elsewhere accessible
 	private static File dataFile;
-	private static File inventoryHistoryDir; // Directory for inventory history
+	private static File inventoryHistoryDir;
+
 
 	@Override
 	public void onInitialize() {
@@ -71,24 +83,16 @@ public class StaffMode implements ModInitializer {
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
 			server.execute(() -> {
 				updatePlayerCount(server);
-				// Enhanced check on player join:
-				// If a player joins in Creative mode, but our mod doesn't track them as
-				// being in staff mode (e.g., manual gamemode change before disconnect,
-				// or a crash where data was lost/corrupted), revert them.
 				if (handler.player.interactionManager.getGameMode() == GameMode.CREATIVE && !isPlayerInStaffMode(handler.player.getUuid())) {
 					LOGGER.warn("Player {} joined in creative mode without staff mode data. Forcing revert to survival.", handler.player.getName().getString());
-					handler.player.getInventory().clear(); // Clear inventory as we have no saved one
-					handler.player.changeGameMode(GameMode.SURVIVAL); // Revert to survival
+					handler.player.getInventory().clear();
+					handler.player.changeGameMode(GameMode.SURVIVAL);
 					handler.player.sendMessage(Text.literal("§cYou were reverted to Survival mode as no staff mode data was found."), false);
-					// Ensure OP status is removed if they weren't originally OP and are now.
-					// This is a safety for manual changes.
 					if (server.getPlayerManager().isOperator(handler.player.getGameProfile())) {
 						server.getPlayerManager().removeFromOperators(handler.player.getGameProfile());
 						handler.player.sendMessage(Text.literal("§aYour operator status has been revoked."), false);
 					}
 				} else if (handler.player.interactionManager.getGameMode() != GameMode.CREATIVE && isPlayerInStaffMode(handler.player.getUuid())) {
-					// This case means they logged out while in staff mode, but not in creative mode.
-					// This could indicate a manual gamemode change. Force revert to survival with their saved inventory.
 					LOGGER.warn("Player {} joined not in creative mode but had staff mode data. Forcing revert to survival with saved inventory.", handler.player.getName().getString());
 					revertPlayerToSurvival(handler.player);
 				}
@@ -96,19 +100,19 @@ public class StaffMode implements ModInitializer {
 		});
 
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
-			// Revert player to survival on disconnect, and then save the data.
+			// Clean up viewing state on disconnect
+			viewingHistoryOfPlayer.remove(handler.player.getUuid());
 			revertPlayerToSurvival(handler.player);
 			server.execute(() -> {
 				updatePlayerCount(server);
 			});
-			// saveData(server); // Data is saved on server stopping and after toggle.
 		});
 
 		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
 			LOGGER.info("Minecraft server started. Starting Discord bot and sending initial player count.");
 			File creativeToggleDataDir = server.getSavePath(WorldSavePath.ROOT).resolve(MOD_ID).toFile();
 			if (!creativeToggleDataDir.exists()) {
-				creativeToggleDataDir.mkdirs(); // Ensure the directory exists
+				creativeToggleDataDir.mkdirs();
 			}
 			dataFile = new File(creativeToggleDataDir, "staff_mode_data.nbt");
 			inventoryHistoryDir = new File(creativeToggleDataDir, "inventory_history");
@@ -116,9 +120,11 @@ public class StaffMode implements ModInitializer {
 				inventoryHistoryDir.mkdirs();
 			}
 
-			loadData(server); // Load general staff mode data
-			loadInventoryHistory(server); // Load inventory history
+			loadData(server);
+			loadInventoryHistory(server);
 
+			// Ensure DiscordBotManager and config are handled correctly (assuming it's in your project)
+			// If DiscordBotManager is not implemented, you'll get further errors.
 			DiscordBotManager.startBot(config.getDiscordBotToken(), config.getDiscordBotHttpPort(), server, config);
 		});
 
@@ -127,8 +133,9 @@ public class StaffMode implements ModInitializer {
 			for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
 				revertPlayerToSurvival(player);
 			}
-			saveData(server); // Save general staff mode data
-			saveAllInventoryHistory(server); // Save all inventory history
+			saveData(server);
+			saveAllInventoryHistory(server);
+			// Ensure DiscordBotManager is handled correctly
 			DiscordBotManager.currentPlayerCount.set(0);
 			DiscordBotManager.updateBotPresence();
 			DiscordBotManager.stopBot();
@@ -144,17 +151,191 @@ public class StaffMode implements ModInitializer {
 				)
 		);
 
-		// New command: /inventoryhistory <player> [index]
+		// Command to list and open history in a chest GUI
 		dispatcher.register(literal("inventoryhistory")
-				.requires(source -> source.hasPermissionLevel(2)) // Higher permission for sensitive command
-				.then(argument("player", StringArgumentType.word()) // Use StringArgumentType.word for player name
-						.executes(context -> listInventoryHistory(context, StringArgumentType.getString(context, "player")))
-						.then(argument("index", IntegerArgumentType.integer(0, MAX_INVENTORY_HISTORY - 1)) // Index from 0 to MAX-1
-								.executes(context -> restoreInventoryHistory(context, StringArgumentType.getString(context, "player"), IntegerArgumentType.getInteger(context, "index")))
+				.requires(source -> source.hasPermissionLevel(2))
+				.then(argument("player", gameProfile())
+						.executes(context -> listInventoryHistory(context, getProfileArgument(context, "player")))
+				)
+		);
+
+		// Command to open the chest GUI for a specific snapshot
+		dispatcher.register(literal("inventoryhistory")
+				.requires(source -> source.hasPermissionLevel(2))
+				.then(argument("player", gameProfile())
+						.then(argument("index", IntegerArgumentType.integer(0, MAX_INVENTORY_HISTORY - 1))
+								.executes(context -> openInventoryHistoryChest(context, getProfileArgument(context, "player"), IntegerArgumentType.getInteger(context, "index")))
 						)
 				)
 		);
+
+		// Command to restore inventory from a viewed snapshot
+		dispatcher.register(literal("restoreinventory")
+				.requires(source -> source.hasPermissionLevel(2))
+				.then(argument("index", IntegerArgumentType.integer(0, MAX_INVENTORY_HISTORY - 1))
+						.executes(context -> restoreInventoryHistory(context, IntegerArgumentType.getInteger(context, "index")))
+				)
+		);
 	}
+
+	private static int listInventoryHistory(CommandContext<ServerCommandSource> context, Collection<GameProfile> profiles) {
+		ServerPlayerEntity adminPlayer = context.getSource().getPlayer();
+		if (adminPlayer == null) {
+			context.getSource().sendError(Text.literal("§cThis command can only be used by a player."));
+			return 0;
+		}
+
+		if (profiles.isEmpty()) {
+			adminPlayer.sendMessage(Text.literal("§cNo player found with that name."), false);
+			return 0;
+		}
+
+		GameProfile targetProfile = profiles.iterator().next();
+		UUID targetUuid = targetProfile.getId();
+		String targetPlayerName = targetProfile.getName();
+
+		Deque<PlayerInventorySnapshot> history = inventoryHistory.get(targetUuid);
+
+		if (history == null || history.isEmpty()) {
+			adminPlayer.sendMessage(Text.literal("§eNo inventory history found for " + targetPlayerName + "."), false);
+			return 0;
+		}
+
+		adminPlayer.sendMessage(Text.literal("§bInventory History for §a" + targetPlayerName + "§b:"), false);
+		int index = 0;
+		for (PlayerInventorySnapshot snapshot : history) {
+			adminPlayer.sendMessage(Text.literal(String.format("§7[%d] §fReason: §e%s, §fTime: §a%s", index, snapshot.reason, snapshot.timestamp)), false);
+			index++;
+		}
+		adminPlayer.sendMessage(Text.literal(String.format("§7To view a snapshot: §b/inventoryhistory %s <index>§7.", targetPlayerName)), false);
+		adminPlayer.sendMessage(Text.literal(String.format("§7To restore a snapshot (after viewing with /inventoryhistory): §b/restoreinventory <index>§7.", targetPlayerName)), false);
+
+
+		// Store which player's history the admin is currently viewing
+		viewingHistoryOfPlayer.put(adminPlayer.getUuid(), targetUuid);
+
+		return Command.SINGLE_SUCCESS;
+	}
+
+	private static int openInventoryHistoryChest(CommandContext<ServerCommandSource> context, Collection<GameProfile> profiles, int index) {
+		ServerPlayerEntity adminPlayer = context.getSource().getPlayer();
+		if (adminPlayer == null) {
+			context.getSource().sendError(Text.literal("§cThis command can only be used by a player."));
+			return 0;
+		}
+
+		if (profiles.isEmpty()) {
+			adminPlayer.sendMessage(Text.literal("§cNo player found with that name."), false);
+			return 0;
+		}
+
+		GameProfile targetProfile = profiles.iterator().next();
+		UUID targetUuid = targetProfile.getId();
+		String targetPlayerName = targetProfile.getName();
+
+		Deque<PlayerInventorySnapshot> history = inventoryHistory.get(targetUuid);
+
+		if (history == null || history.isEmpty() || index >= history.size() || index < 0) {
+			adminPlayer.sendMessage(Text.literal("§cInvalid history index for " + targetPlayerName + ". Use /inventoryhistory " + targetPlayerName + " to see available indices."), false);
+			return 0;
+		}
+
+		PlayerInventorySnapshot snapshotToView = history.stream().skip(index).findFirst().orElse(null);
+
+		if (snapshotToView == null) {
+			adminPlayer.sendMessage(Text.literal("§cError: Could not retrieve snapshot at index " + index + " for " + targetPlayerName + "."), false);
+			return 0;
+		}
+
+		SimpleInventory tempInventory = new SimpleInventory(27);
+		for (int i = 0; i < snapshotToView.inventory.length && i < tempInventory.size(); i++) {
+			if (!snapshotToView.inventory[i].isEmpty()) {
+				tempInventory.setStack(i, snapshotToView.inventory[i].copy());
+			}
+		}
+
+		// --- FIX IS HERE ---
+		adminPlayer.openHandledScreen(new NamedScreenHandlerFactory() {
+			@Override
+			public GenericContainerScreenHandler createMenu(int syncId, PlayerInventory playerInventory, PlayerEntity player) {
+				return new GenericContainerScreenHandler(
+						net.minecraft.screen.ScreenHandlerType.GENERIC_9X3,
+						syncId,
+						playerInventory,
+						tempInventory,
+						3
+				);
+			}
+
+			@Override
+			public Text getDisplayName() {
+				return Text.literal("History of " + targetPlayerName + " [" + index + "] " + snapshotToView.timestamp);
+			}
+		});
+		// --- END FIX ---
+
+
+		adminPlayer.sendMessage(Text.literal(String.format("§aOpened inventory snapshot for §e%s§a at index §b%d§a. (Reason: %s, Time: %s)",
+				targetPlayerName, index, snapshotToView.reason, snapshotToView.timestamp)), false);
+
+		viewingHistoryOfPlayer.put(adminPlayer.getUuid(), targetUuid);
+
+		return Command.SINGLE_SUCCESS;
+	}
+
+
+	private static int restoreInventoryHistory(CommandContext<ServerCommandSource> context, int index) {
+		ServerPlayerEntity adminPlayer = context.getSource().getPlayer();
+		if (adminPlayer == null) {
+			context.getSource().sendError(Text.literal("§cThis command can only be used by a player."));
+			return 0;
+		}
+
+		UUID targetPlayerUuid = viewingHistoryOfPlayer.get(adminPlayer.getUuid());
+		if (targetPlayerUuid == null) {
+			adminPlayer.sendMessage(Text.literal("§cYou are not currently viewing any player's inventory history. Use /inventoryhistory <player> first."), false);
+			return 0;
+		}
+
+		ServerPlayerEntity targetPlayer = context.getSource().getServer().getPlayerManager().getPlayer(targetPlayerUuid);
+		if (targetPlayer == null) {
+			adminPlayer.sendMessage(Text.literal("§cThe target player is not online to restore their inventory. Only online players can have their inventory restored."), false);
+			viewingHistoryOfPlayer.remove(adminPlayer.getUuid());
+			return 0;
+		}
+
+		Deque<PlayerInventorySnapshot> history = inventoryHistory.get(targetPlayerUuid);
+
+		if (history == null || history.isEmpty() || index >= history.size() || index < 0) {
+			adminPlayer.sendMessage(Text.literal("§cInvalid history index. Please check /inventoryhistory " + targetPlayer.getName().getString() + " again."), false);
+			return 0;
+		}
+
+		PlayerInventorySnapshot snapshotToRestore = history.stream().skip(index).findFirst().orElse(null);
+
+		if (snapshotToRestore == null) {
+			adminPlayer.sendMessage(Text.literal("§cError: Could not retrieve snapshot at index " + index + " for " + targetPlayer.getName().getString() + "."), false);
+			return 0;
+		}
+
+		addInventorySnapshot(targetPlayer, "pre_restore_inventory_by_" + adminPlayer.getName().getString() + "_from_snapshot_" + snapshotToRestore.timestamp + "_" + snapshotToRestore.reason);
+		targetPlayer.getInventory().clear();
+		for (int i = 0; i < snapshotToRestore.inventory.length; i++) {
+			if (!snapshotToRestore.inventory[i].isEmpty()) {
+				targetPlayer.getInventory().setStack(i, snapshotToRestore.inventory[i]);
+			}
+		}
+		targetPlayer.getInventory().updateItems();
+		targetPlayer.sendMessage(Text.literal("§aYour inventory has been restored by " + adminPlayer.getName().getString() + " to a previous state."), false);
+		adminPlayer.sendMessage(Text.literal("§aSuccessfully restored §e" + targetPlayer.getName().getString() + "§a's inventory to state at §b" + snapshotToRestore.timestamp + " §a(Reason: " + snapshotToRestore.reason + ")."), false);
+
+		String discordMessage = String.format("Admin **%s** restored Player **%s**'s inventory to snapshot from `%s` (Reason: `%s`).",
+				adminPlayer.getName().getString(), targetPlayer.getName().getString(), snapshotToRestore.timestamp, snapshotToRestore.reason);
+		DiscordBotManager.sendMessageToChannel(config.getAdminLogChannelId(), discordMessage);
+
+		return Command.SINGLE_SUCCESS;
+	}
+
 
 	private static int executeCreativeToggle(CommandContext<ServerCommandSource> context, String reason) {
 		ServerPlayerEntity player;
@@ -171,18 +352,16 @@ public class StaffMode implements ModInitializer {
 		String playerName = player.getName().getString();
 		GameProfile playerProfile = player.getGameProfile();
 
-		// Safeguard check: If player is in staff mode but not in creative, or vice versa, correct them.
 		if (isPlayerInStaffMode(uuid) && currentMode != GameMode.CREATIVE) {
 			player.sendMessage(Text.literal("§cDetected manual game mode change while in staff mode. Reverting to creative..."), false);
 			player.changeGameMode(GameMode.CREATIVE);
 			String discordMessage = String.format("Player **%s** attempted manual game mode change while in staff mode. Forced back to Creative.", playerName);
 			DiscordBotManager.sendMessageToChannel(config.getAdminLogChannelId(), discordMessage);
-			return Command.SINGLE_SUCCESS; // Indicate command handled
+			return Command.SINGLE_SUCCESS;
 		} else if (!isPlayerInStaffMode(uuid) && currentMode == GameMode.CREATIVE) {
 			player.sendMessage(Text.literal("§cDetected creative mode without staff mode enabled. Reverting to survival and clearing inventory as safeguard..."), false);
 			player.getInventory().clear();
 			player.changeGameMode(GameMode.SURVIVAL);
-			// Also ensure OP status is removed if they weren't OP before this manual change.
 			if (server.getPlayerManager().isOperator(playerProfile)) {
 				server.getPlayerManager().removeFromOperators(playerProfile);
 				player.sendMessage(Text.literal("§aYour operator status has been revoked."), false);
@@ -193,11 +372,9 @@ public class StaffMode implements ModInitializer {
 		}
 
 		if (currentMode == GameMode.CREATIVE && savedSurvivalInventories.containsKey(uuid)) {
-			// Player is in staff mode, exiting to survival
 			player.sendMessage(Text.literal("§eExiting staff mode (Switching back to Survival)..."), false);
 			LOGGER.info("Player {} exiting staff mode", playerName);
 
-			// Save current (creative) inventory to history before clearing
 			addInventorySnapshot(player, "exit_staff_mode_creative");
 
 			player.getInventory().clear();
@@ -226,14 +403,12 @@ public class StaffMode implements ModInitializer {
 
 			String discordMessage = String.format("Player **%s** has exited staff mode (switched to Survival). Reason: `%s`", playerName, reason);
 			DiscordBotManager.sendMessageToChannel(config.getAdminLogChannelId(), discordMessage);
-			saveData(server); // Save data after a player exits staff mode
+			saveData(server);
 
 		} else if (currentMode == GameMode.SURVIVAL) {
-			// Player is in survival, entering staff mode
 			player.sendMessage(Text.literal("§eEntering staff mode (Switching to Creative)..."), false);
 			LOGGER.info("Player {} entering staff mode", playerName);
 
-			// Save current (survival) inventory to history before clearing and saving for staff mode
 			addInventorySnapshot(player, "pre_staff_mode_survival");
 
 			ItemStack[] inventoryCopy = new ItemStack[player.getInventory().size()];
@@ -262,7 +437,7 @@ public class StaffMode implements ModInitializer {
 
 			String discordMessage = String.format("Player **%s** has entered staff mode (switched to Creative). Reason: `%s`", playerName, reason);
 			DiscordBotManager.sendMessageToChannel(config.getAdminLogChannelId(), discordMessage);
-			saveData(server); // Save data after a player enters staff mode
+			saveData(server);
 
 		} else {
 			player.sendMessage(Text.literal("§cYou must be in Survival or have toggled from it to use this command."), false);
@@ -278,12 +453,9 @@ public class StaffMode implements ModInitializer {
 		MinecraftServer server = player.getServer();
 		GameProfile playerProfile = player.getGameProfile();
 
-		// Only revert if they are currently in Creative and we have saved data for them
-		// OR if they have saved data but are not in creative (manual change)
 		if (isPlayerInStaffMode(uuid) && player.interactionManager.getGameMode() == GameMode.CREATIVE) {
 			LOGGER.info("Reverting player {} to Survival mode due to disconnect/server stopping from STAFF MODE.", playerName);
 
-			// Save current (creative) inventory to history before clearing
 			addInventorySnapshot(player, "revert_staff_mode_disconnect");
 
 			player.getInventory().clear();
@@ -312,12 +484,11 @@ public class StaffMode implements ModInitializer {
 
 			String discordMessage = String.format("Player **%s** was reverted to Survival mode due to disconnect or server stopping.", playerName);
 			DiscordBotManager.sendMessageToChannel(config.getAdminLogChannelId(), discordMessage);
-			saveData(server); // Save data after a player is reverted
+			saveData(server);
 		} else if (isPlayerInStaffMode(uuid) && player.interactionManager.getGameMode() != GameMode.CREATIVE) {
-			// This handles cases where they might have manually changed game mode while in staff mode and then disconnected
 			LOGGER.warn("Player {} had staff mode data but was not in creative mode on disconnect. Forcing revert with saved inventory.", playerName);
 
-			player.getInventory().clear(); // Clear current, potentially empty or wrong inventory
+			player.getInventory().clear();
 			ItemStack[] savedItems = savedSurvivalInventories.get(uuid);
 			if (savedItems != null) {
 				for (int i = 0; i < savedItems.length; i++) {
@@ -360,9 +531,6 @@ public class StaffMode implements ModInitializer {
 		return config;
 	}
 
-	// --- Inventory History Methods ---
-
-	// Snapshot class to store inventory and metadata
 	private static class PlayerInventorySnapshot {
 		public final ItemStack[] inventory;
 		public final String timestamp;
@@ -394,7 +562,7 @@ public class StaffMode implements ModInitializer {
 			String timestamp = tag.getString("Timestamp");
 			String reason = tag.getString("Reason");
 			NbtList itemsTag = tag.getList("Inventory", NbtCompound.COMPOUND_TYPE);
-			ItemStack[] loadedInventory = new ItemStack[41]; // Assuming standard player inventory size
+			ItemStack[] loadedInventory = new ItemStack[41];
 			for (int i = 0; i < itemsTag.size(); i++) {
 				if (i < loadedInventory.length) {
 					Optional<ItemStack> itemStackOptional = ItemStack.fromNbt(lookup, itemsTag.getCompound(i));
@@ -402,9 +570,8 @@ public class StaffMode implements ModInitializer {
 				}
 			}
 			PlayerInventorySnapshot snapshot = new PlayerInventorySnapshot(loadedInventory, reason);
-			// Overwrite timestamp with loaded one
 			try {
-				java.lang.reflect.Field timestampField = snapshot.getClass().getField("timestamp");
+				java.lang.reflect.Field timestampField = snapshot.getClass().getDeclaredField("timestamp");
 				timestampField.setAccessible(true);
 				timestampField.set(snapshot, timestamp);
 			} catch (NoSuchFieldException | IllegalAccessException e) {
@@ -418,122 +585,19 @@ public class StaffMode implements ModInitializer {
 		UUID uuid = player.getUuid();
 		Deque<PlayerInventorySnapshot> history = inventoryHistory.computeIfAbsent(uuid, k -> new ArrayDeque<>());
 
-		// Take snapshot of current inventory
 		ItemStack[] currentInventory = new ItemStack[player.getInventory().size()];
 		for (int i = 0; i < currentInventory.length; i++) {
 			currentInventory[i] = player.getInventory().getStack(i).copy();
 		}
 
-		history.addFirst(new PlayerInventorySnapshot(currentInventory, reason)); // Add to the front
+		history.addFirst(new PlayerInventorySnapshot(currentInventory, reason));
 
-		// Trim history if it exceeds max size
 		while (history.size() > MAX_INVENTORY_HISTORY) {
 			history.removeLast();
 		}
 		LOGGER.info("Added inventory snapshot for {}. Reason: {}", player.getName().getString(), reason);
-		// Save history immediately
 		savePlayerInventoryHistory(player.getServer(), player.getUuid());
 	}
-
-	private static int listInventoryHistory(CommandContext<ServerCommandSource> context, String playerName) {
-		ServerPlayerEntity admin = context.getSource().getPlayer();
-		if (admin == null) {
-			context.getSource().sendError(Text.literal("§cThis command can only be used by a player."));
-			return 0;
-		}
-
-		MinecraftServer server = context.getSource().getServer();
-		ServerPlayerEntity targetPlayer = server.getPlayerManager().getPlayer(playerName);
-		UUID targetUuid;
-
-		if (targetPlayer != null) {
-			targetUuid = targetPlayer.getUuid();
-		} else {
-			// Try to find UUID from saved data if player is offline
-			targetUuid = null; // Need a way to resolve offline player UUIDs if not currently loaded
-			for (UUID uuid : inventoryHistory.keySet()) {
-				if (server.getPlayerManager().getPlayer(uuid) == null) { // Check if player is not online
-					// This is a crude way to check for offline players.
-					// A more robust solution would involve loading player data from disk
-					// or using an external player database if available.
-					// For now, let's assume direct lookup for simplicity or rely on DiscordBotManager's name lookup.
-				}
-			}
-			if (targetUuid == null) {
-				context.getSource().sendError(Text.literal("§cPlayer '" + playerName + "' not found or offline."));
-				return 0;
-			}
-		}
-
-
-		Deque<PlayerInventorySnapshot> history = inventoryHistory.get(targetUuid);
-
-		if (history == null || history.isEmpty()) {
-			admin.sendMessage(Text.literal("§eNo inventory history found for " + playerName + "."), false);
-			return Command.SINGLE_SUCCESS;
-		}
-
-		admin.sendMessage(Text.literal("§bInventory History for §a" + playerName + "§b:"), false);
-		int index = 0;
-		for (PlayerInventorySnapshot snapshot : history) {
-			admin.sendMessage(Text.literal(String.format("§7[%d] §fReason: §e%s, §fTime: §a%s", index, snapshot.reason, snapshot.timestamp)), false);
-			index++;
-		}
-		admin.sendMessage(Text.literal(String.format("§7Use §b/inventoryhistory %s <index> §7to restore.", playerName)), false);
-		return Command.SINGLE_SUCCESS;
-	}
-
-	private static int restoreInventoryHistory(CommandContext<ServerCommandSource> context, String playerName, int index) {
-		ServerPlayerEntity admin = context.getSource().getPlayer();
-		if (admin == null) {
-			context.getSource().sendError(Text.literal("§cThis command can only be used by a player."));
-			return 0;
-		}
-
-		MinecraftServer server = context.getSource().getServer();
-		ServerPlayerEntity targetPlayer = server.getPlayerManager().getPlayer(playerName);
-
-		if (targetPlayer == null) {
-			admin.sendMessage(Text.literal("§cPlayer '" + playerName + "' is not online."), false);
-			return 0;
-		}
-
-		UUID targetUuid = targetPlayer.getUuid();
-		Deque<PlayerInventorySnapshot> history = inventoryHistory.get(targetUuid);
-
-		if (history == null || history.isEmpty() || index >= history.size() || index < 0) {
-			admin.sendMessage(Text.literal("§cInvalid history index for " + playerName + "."), false);
-			return 0;
-		}
-
-		// Convert Deque to List to access by index
-		PlayerInventorySnapshot snapshotToRestore = history.stream().skip(index).findFirst().orElse(null);
-
-		if (snapshotToRestore == null) {
-			admin.sendMessage(Text.literal("§cError: Could not retrieve snapshot at index " + index + " for " + playerName + "."), false);
-			return 0;
-		}
-
-		// Clear current inventory and restore
-		addInventorySnapshot(targetPlayer, "pre_restore_inventory_" + snapshotToRestore.reason + "_" + snapshotToRestore.timestamp); // Save current inventory before overwriting
-		targetPlayer.getInventory().clear();
-		for (int i = 0; i < snapshotToRestore.inventory.length; i++) {
-			if (!snapshotToRestore.inventory[i].isEmpty()) {
-				targetPlayer.getInventory().setStack(i, snapshotToRestore.inventory[i]);
-			}
-		}
-		targetPlayer.getInventory().updateItems();
-		targetPlayer.sendMessage(Text.literal("§aYour inventory has been restored to a previous state."), false);
-		admin.sendMessage(Text.literal("§aSuccessfully restored §e" + playerName + "§a's inventory to state at §b" + snapshotToRestore.timestamp + " §a(Reason: " + snapshotToRestore.reason + ")."), false);
-
-		String discordMessage = String.format("Admin **%s** restored Player **%s**'s inventory to snapshot from `%s` (Reason: `%s`).",
-				admin.getName().getString(), playerName, snapshotToRestore.timestamp, snapshotToRestore.reason);
-		DiscordBotManager.sendMessageToChannel(config.getAdminLogChannelId(), discordMessage);
-
-		return Command.SINGLE_SUCCESS;
-	}
-
-	// --- Persistence Methods for Main Data ---
 
 	private static void saveData(MinecraftServer server) {
 		if (dataFile == null) {
@@ -546,7 +610,6 @@ public class StaffMode implements ModInitializer {
 
 		RegistryWrapper.WrapperLookup lookup = server.getRegistryManager();
 
-		// Save savedSurvivalInventories
 		NbtList inventoryListTag = new NbtList();
 		for (Map.Entry<UUID, ItemStack[]> entry : savedSurvivalInventories.entrySet()) {
 			NbtCompound playerEntryTag = new NbtCompound();
@@ -565,7 +628,6 @@ public class StaffMode implements ModInitializer {
 		}
 		rootTag.put("SavedInventories", inventoryListTag);
 
-		// Save originalGameModes
 		NbtList gameModeListTag = new NbtList();
 		for (Map.Entry<UUID, GameMode> entry : originalGameModes.entrySet()) {
 			NbtCompound playerEntryTag = new NbtCompound();
@@ -575,7 +637,6 @@ public class StaffMode implements ModInitializer {
 		}
 		rootTag.put("OriginalGameModes", gameModeListTag);
 
-		// Save wasOriginallyOp
 		NbtList opListTag = new NbtList();
 		for (Map.Entry<UUID, Boolean> entry : wasOriginallyOp.entrySet()) {
 			NbtCompound playerEntryTag = new NbtCompound();
@@ -610,7 +671,6 @@ public class StaffMode implements ModInitializer {
 
 			RegistryWrapper.WrapperLookup lookup = server.getRegistryManager();
 
-			// Load savedSurvivalInventories
 			if (rootTag.contains("SavedInventories")) {
 				NbtList inventoryListTag = rootTag.getList("SavedInventories", NbtCompound.COMPOUND_TYPE);
 				savedSurvivalInventories.clear();
@@ -629,7 +689,6 @@ public class StaffMode implements ModInitializer {
 				}
 			}
 
-			// Load originalGameModes
 			if (rootTag.contains("OriginalGameModes")) {
 				NbtList gameModeListTag = rootTag.getList("OriginalGameModes", NbtCompound.COMPOUND_TYPE);
 				originalGameModes.clear();
@@ -645,7 +704,6 @@ public class StaffMode implements ModInitializer {
 				}
 			}
 
-			// Load wasOriginallyOp
 			if (rootTag.contains("WasOriginallyOp")) {
 				NbtList opListTag = rootTag.getList("WasOriginallyOp", NbtCompound.COMPOUND_TYPE);
 				wasOriginallyOp.clear();
@@ -666,8 +724,6 @@ public class StaffMode implements ModInitializer {
 		}
 	}
 
-	// --- Persistence Methods for Inventory History ---
-
 	private static File getHistoryFileForPlayer(UUID playerUuid) {
 		return new File(inventoryHistoryDir, playerUuid.toString() + ".nbt");
 	}
@@ -678,7 +734,7 @@ public class StaffMode implements ModInitializer {
 
 		if (history == null || history.isEmpty()) {
 			if (playerHistoryFile.exists()) {
-				playerHistoryFile.delete(); // Delete file if history is empty
+				playerHistoryFile.delete();
 			}
 			return;
 		}
@@ -694,7 +750,6 @@ public class StaffMode implements ModInitializer {
 
 		try (FileOutputStream fos = new FileOutputStream(playerHistoryFile)) {
 			NbtIo.writeCompressed(rootTag, fos);
-			// LOGGER.debug("Saved inventory history for {}.", playerUuid); // Use debug for frequent saves
 		} catch (IOException e) {
 			LOGGER.error("Failed to save inventory history for {}: {}", playerUuid, e.getMessage());
 		}
@@ -740,7 +795,6 @@ public class StaffMode implements ModInitializer {
 				LOGGER.debug("Loaded history for {}: {} snapshots.", playerUuid, history.size());
 			} catch (IOException | IllegalArgumentException e) {
 				LOGGER.error("Failed to load inventory history from file {}: {}", file.getName(), e.getMessage());
-				// Consider moving corrupted files aside or deleting them here
 			}
 		}
 		LOGGER.info("Finished loading all player inventory histories. Loaded histories for {} players.", inventoryHistory.size());
